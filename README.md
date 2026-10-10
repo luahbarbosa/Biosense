@@ -26,9 +26,9 @@ Quando um objeto é detectado a uma distância menor que **50 cm**, o sistema id
 | Servo motor     | 7    |
 | LED             | 10   |
 
+## Tecnologias utilizados
 * Arduino
 * C/C++
 * Sensor ultrassônico HC-SR04
 * Servo motor
 
-````
