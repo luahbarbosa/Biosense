@@ -1,119 +1,71 @@
-#include <Servo.h> // Biblioteca utilizada para controlar o servo motor
+#include <Servo.h>
 
-// ==========================
-// A. CONFIGURAÇÃO DOS PINOS
-// ==========================
-
-const int trigPin = 5;   // Pino TRIG do sensor ultrassônico
-const int echoPin = 6;   // Pino ECHO do sensor ultrassônico
-const int servoPin = 7;  // Pino de controle do servo motor
-const int ledPin = 10;   // Pino do LED
-
-// ==========================
-// C. VARIÁVEIS UTILIZADAS
-// ==========================
+const int trigPin = 5;
+const int echoPin = 6;
+const int servoPin = 7;
+const int ledPin = 10;
 
 Servo servo;
-
-long duration;           // Tempo de retorno do sinal ultrassônico
-long dist;               // Distância calculada em centímetros
-long leituras[3];        // Armazena 3 medições para calcular a média
-
-// ==========================
-// B. INICIALIZAÇÃO
-// ==========================
+long leituras[3];
 
 void setup() {
   Serial.begin(9600);
-
-  // Configuração dos pinos
   pinMode(trigPin, OUTPUT);
   pinMode(echoPin, INPUT);
   pinMode(ledPin, OUTPUT);
 
-  // Inicializa o servo com a tampa fechada
   servo.attach(servoPin);
   servo.write(0);
-  delay(100);
+  delay(500);
   servo.detach();
 }
 
-// ==========================
-// D. LEITURA DO SENSOR
-// ==========================
-
-void medirDistancia() {
-
-  // Envia um pulso pelo sensor ultrassônico
+long medirDistancia() {
   digitalWrite(trigPin, LOW);
   delayMicroseconds(5);
-
   digitalWrite(trigPin, HIGH);
-  delayMicroseconds(15);
-
+  delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
-  // Recebe o tempo de retorno do sinal
-  duration = pulseIn(echoPin, HIGH);
+  // Timeout de 30 ms: se não houver eco, retorna 0
+  long duration = pulseIn(echoPin, HIGH, 30000);
 
-  // Converte o tempo em distância (cm)
-  dist = (duration / 2) / 29.1;
+  // Sem eco = nada na frente -> distância "infinita"
+  if (duration == 0) return 999;
+
+  return (duration / 2) / 29.1;
 }
 
-// ==========================
-// PROGRAMA PRINCIPAL
-// ==========================
-
 void loop() {
-
-  // Realiza 3 medições para obter uma distância média
   for (int i = 0; i < 3; i++) {
-
-    medirDistancia();
-    leituras[i] = dist;
-
-    delay(10);
+    leituras[i] = medirDistancia();
+    delay(30);   // sensor precisa de um intervalo entre medições
   }
 
-  // Calcula a média das três medições
-  dist = (leituras[0] + leituras[1] + leituras[2]) / 3;
+  // Só detecta se TODAS as leituras forem válidas e menores que 50 cm
+  bool detectado = true;
+  for (int i = 0; i < 3; i++) {
+    if (leituras[i] < 2 || leituras[i] >= 50) detectado = false;
+  }
 
-  // Exibe a distância no Monitor Serial
+  long media = (leituras[0] + leituras[1] + leituras[2]) / 3;
   Serial.print("Distancia: ");
-  Serial.print(dist);
+  Serial.print(media);
   Serial.println(" cm");
 
-  // ==========================
-  // E. ESTRUTURA CONDICIONAL
-  // ==========================
-
-  // Verifica se algum objeto está a menos de 50 cm
-  if (dist < 50) {
-
+  if (detectado) {
     Serial.println("OBJETO DETECTADO!");
-
-    // Acende o LED para indicar a detecção
     digitalWrite(ledPin, HIGH);
 
-    // ==========================
-    // F. ACIONAMENTO DO ATUADOR
-    // ==========================
-
-    // Ativa o servo motor
     servo.attach(servoPin);
+    servo.write(150);      // abre a tampa
+    delay(3000);           // mantém aberta por 3 s
 
-    // Mantém a tampa fechada inicialmente
-    servo.write(0);
-    delay(3000);
-
-    // Abre a tampa
-    servo.write(150);
+    servo.write(0);        // fecha a tampa
     delay(1000);
-
-    // Desliga o servo após o movimento
     servo.detach();
 
-    // Apaga o LED
     digitalWrite(ledPin, LOW);
+    delay(500);            // pausa antes de uma nova detecção
   }
 }
