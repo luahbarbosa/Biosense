@@ -1,23 +1,27 @@
 #include <Servo.h>
 
-const int trigPin = 5;
-const int echoPin = 6;
+const int trigPin  = 5;
+const int echoPin  = 6;
 const int servoPin = 7;
-const int ledPin = 10;
+const int ledPin   = 10;
+
+const int ANGULO_ABERTA  = 120;
+const int ANGULO_FECHADA = 0;
+const int DIST_MAXIMA    = 50;                 // cm
+const unsigned long TEMPO_APOS_SAIR = 5000;    // 5 s depois que a pessoa sai
 
 Servo servo;
-long leituras[3];
 
-void setup() {
-  Serial.begin(9600);
-  pinMode(trigPin, OUTPUT);
-  pinMode(echoPin, INPUT);
-  pinMode(ledPin, OUTPUT);
+enum Estado { FECHADA, ABERTA_PRESENTE, ABERTA_AGUARDANDO };
+Estado estado = FECHADA;
 
+unsigned long instanteSaida = 0;
+
+void moverServo(int angulo) {
   servo.attach(servoPin);
-  servo.write(0);
-  delay(500);
-  servo.detach();
+  servo.write(angulo);
+  delay(600);          // tempo para o servo chegar na posição
+  servo.detach();      // evita tremor e economiza energia
 }
 
 long medirDistancia() {
@@ -27,45 +31,64 @@ long medirDistancia() {
   delayMicroseconds(10);
   digitalWrite(trigPin, LOW);
 
-  // Timeout de 30 ms: se não houver eco, retorna 0
   long duration = pulseIn(echoPin, HIGH, 30000);
-
-  // Sem eco = nada na frente -> distância "infinita"
-  if (duration == 0) return 999;
-
+  if (duration == 0) return 999;               // sem eco = nada na frente
   return (duration / 2) / 29.1;
 }
 
+// Retorna true se as 3 leituras indicarem presença (filtra ruído)
+bool pessoaPresente() {
+  for (int i = 0; i < 3; i++) {
+    long d = medirDistancia();
+    if (d < 2 || d >= DIST_MAXIMA) return false;
+    delay(30);
+  }
+  return true;
+}
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(trigPin, OUTPUT);
+  pinMode(echoPin, INPUT);
+  pinMode(ledPin, OUTPUT);
+
+  moverServo(ANGULO_FECHADA);
+  Serial.println("Sistema iniciado - tampa FECHADA");
+}
+
 void loop() {
-  for (int i = 0; i < 3; i++) {
-    leituras[i] = medirDistancia();
-    delay(30);   // sensor precisa de um intervalo entre medições
-  }
+  bool presente = pessoaPresente();
 
-  // Só detecta se TODAS as leituras forem válidas e menores que 50 cm
-  bool detectado = true;
-  for (int i = 0; i < 3; i++) {
-    if (leituras[i] < 2 || leituras[i] >= 50) detectado = false;
-  }
+  switch (estado) {
 
-  long media = (leituras[0] + leituras[1] + leituras[2]) / 3;
-  Serial.print("Distancia: ");
-  Serial.print(media);
-  Serial.println(" cm");
+    case FECHADA:
+      if (presente) {
+        Serial.println("Pessoa detectada -> ABRINDO");
+        digitalWrite(ledPin, HIGH);
+        moverServo(ANGULO_ABERTA);
+        estado = ABERTA_PRESENTE;
+      }
+      break;
 
-  if (detectado) {
-    Serial.println("OBJETO DETECTADO!");
-    digitalWrite(ledPin, HIGH);
+    case ABERTA_PRESENTE:
+      if (!presente) {
+        Serial.println("Pessoa saiu -> aguardando 5 s");
+        instanteSaida = millis();
+        estado = ABERTA_AGUARDANDO;
+      }
+      break;
 
-    servo.attach(servoPin);
-    servo.write(150);      // abre a tampa
-    delay(3000);           // mantém aberta por 3 s
-
-    servo.write(0);        // fecha a tampa
-    delay(1000);
-    servo.detach();
-
-    digitalWrite(ledPin, LOW);
-    delay(500);            // pausa antes de uma nova detecção
+    case ABERTA_AGUARDANDO:
+      if (presente) {
+        Serial.println("Pessoa voltou -> mantem aberta");
+        estado = ABERTA_PRESENTE;
+      }
+      else if (millis() - instanteSaida >= TEMPO_APOS_SAIR) {
+        Serial.println("5 s sem ninguem -> FECHANDO");
+        moverServo(ANGULO_FECHADA);
+        digitalWrite(ledPin, LOW);
+        estado = FECHADA;
+      }
+      break;
   }
 }
